@@ -1,271 +1,266 @@
-import asyncio
-import logging
-import os
-
 import psycopg2
-from aiogram import Dispatcher, Bot, Router, types, F
-from aiogram.filters import Command
+from aiogram import Bot, Dispatcher, types, F
+import os
+import asyncio
+from aiogram.filters.command import Command
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, BotCommand, BotCommandScopeDefault
+from aiogram import Router
+from aiogram.filters import Command
+from aiogram.types import BotCommand, BotCommandScope,Message, BotCommandScopeDefault, BotCommandScopeChat
+import requests
 
-# Подключение к базе данных
+
+# Подключение к базе данных PostgreSQL
 conn = psycopg2.connect(dbname="bot_lab", user="maxim_dlia_bota",
                         password="shtangauer05", host="127.0.0.1")
-cursor = conn.cursor()
 
+
+bot_token = os.getenv('TOKEN')
 router = Router()
-# получаем все данные из таблицы admins
-cursor.execute("SELECT * FROM admins")
-print(cursor.fetchall())
+
+class CurrencyInfo_Delete(StatesGroup):
+    name = State()
+    rate = State()
+class CurrencyInfo_Change(StatesGroup):
+    name = State()
+    rate = State()
+class CurrencyInfo(StatesGroup):
+    name = State()
+    rate = State()
+class ConvertCurrency(StatesGroup):
+    name = State()
+    amount = State()
 
 
-# Функция для создания меню команд
-def get_keyboard(is_admin):
-    buttons = [
-        KeyboardButton(text="/start"),
-        KeyboardButton(text="/get_currencies"),
-        KeyboardButton(text="/convert")
-    ]
-    if is_admin:
-        buttons.insert(1, KeyboardButton(text="/manage_currency"))  # Добавляем кнопку для админов
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, keyboard=[buttons])
-    # keyboard.add(*buttons)
-    return keyboard
+@router.message(Command('check_admin'))
+async def check_admin(message: types.Message):
+    chat_id = message.from_user.id
+    response = requests.post('http://127.0.0.1:5002/check_admin', json={"chat_id": chat_id})
+    result = response.json()["is_admin"]
+    return result
 
+# Старт
+@router.message(Command('start'))                                                                               
+@router.message(F.text.lower() == "Старт")
+async def start_command(message: types.Message):
+    await message.reply(
+        "Привет! Я помогу в работе с конвертацией!"
+        "\n /user - Пользователь"
+        "\n /manage_currency - Администратор")
 
-# Приветствие и отображение меню
-@router.message(Command('start'))
-async def start(message: Message):
-    # Проверяем, является ли пользователь админом
-    cursor.execute("SELECT id FROM admins WHERE id = %s", (message.chat.id,))
-    is_admin = bool(cursor.fetchone())
-
-    if is_admin:
-        greeting = "Привет, админ!\n Команды которые есть:\n /start-что понятно для приветсвия,\n /manage_currency-при написании (Добавить валюту, Удалить валюту, Изменить курс валюты) будет выпролнять что вы написали,\n /get_currencies-выводит все сохраненные валюты с курсом к рублю,\n /convert-конвертирует заданную сумму в валюте в сумму в рублях"
-    else:
-        greeting = "Добрый день, гость! \n\n"
-
-    await message.answer(greeting, reply_markup=get_keyboard(is_admin))
-
-
-# Класс для хранения состояний
-class CurrencyManagement(StatesGroup):
-    waiting_for_currency_name = State()
-    waiting_for_currency_rate = State()
-    get_currency_name = State()
-
-
-# Проверка является ли пользователь админом
-def is_admin(chat_id):
-    cursor.execute("SELECT id FROM admins WHERE id = %s", (chat_id,))
-    return bool(cursor.fetchone())
-
-
-# Команда /manage_currency
-@router.message(Command('manage_currency'))
-
-async def manage_currency(message: Message, state: FSMContext):
-    if not is_admin(message.chat.id):
-        await message.answer("Нет доступа к команде")
-        return
-
+# Меню пользователя
+@router.message(Command('user'))                                                                    
+async def user_command(message: types.Message):
     kb = [
-        [types.KeyboardButton(text="Добавить валюту")],
-        [types.KeyboardButton(text="Удалить валюту")],
-        [types.KeyboardButton(text="Изменить курс валюты")]
-    ]
-    keyboard = types.ReplyKeyboardMarkup(keyboard=kb)
-    await message.answer("Выберите действие:", reply_markup=keyboard)
+        [types.KeyboardButton(text="Конвертация")],
+        [types.KeyboardButton(text="Список валют")],
+        [types.KeyboardButton(text="Основное меню")]
+        ]
+    keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, )
+    await message.answer("Рады приветстовать! Что сделаем на этот раз?", reply_markup=keyboard)
 
-# Обработчик команды добавления валюты
-@router.message(F.text == "Добавить валюту")
-async def add_currency_command(message: Message, state:FSMContext):
-    if not is_admin(message.chat.id):
-        await message.answer("Нет доступа к команде")
-        return
-    await message.answer("Введите название валюты:")
-    await state.update_data(action="Добавить валюту")
-    await state.set_state(CurrencyManagement.waiting_for_currency_name)
+# Меню администратора
+@router.message(Command('manage_currency'))                                                       
+async def manage_currency_command(message: types.Message):
+    if not check_admin(message):
+        await message.reply("Нет доступа к команде")
+    else:
+        kb = [
+            [types.KeyboardButton(text="Добавить валюту")],
+            [types.KeyboardButton(text="Удалить валюту")],
+            [types.KeyboardButton(text="Изменить курс валюты")],
+            [types.KeyboardButton(text="Конвертация")],
+            [types.KeyboardButton(text="Список валют")],
+            [types.KeyboardButton(text="Основное меню")]
+        ]
+        keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, )
+        await message.answer("Добро пожаловать! Что вы хотите?", reply_markup=keyboard)
 
+def check_admin(message: types.Message) -> bool:
+    cur = conn.cursor()
+    id = message.from_user.id
+    cur.execute("SELECT id FROM admins WHERE id = %s", (id,))
+    result = cur.fetchone()
+    cur.close()
+    return bool(result)
 
-# Обработчик команды изменения валюты
-@router.message(F.text == "Изменить курс валюты")
-async def update_currency_command(message: Message, state:FSMContext):
-    if not is_admin(message.chat.id):
-        await message.answer("Нет доступа к команде")
-        return
-    await message.answer("Введите название валюты:")
-    await state.update_data(action="Изменить курс валюты")
-    await state.set_state(CurrencyManagement.waiting_for_currency_name)
+user_commands = [
+    types.BotCommand(command="/start", description="Начать работу"),
+    types.BotCommand(command="/convert", description="Конвертировать валюту"),
+    types.BotCommand(command="/get_currencies", description="Получить список всех валют"), ]
 
+admin_commands = [
+    types.BotCommand(command="/start", description="Начать работу"),
+    types.BotCommand(command="/convert", description="Конвертировать валюту"),
+    types.BotCommand(command="/manage_currency", description="Добавить валюту"),
+    types.BotCommand(command="/get_currencies", description="Получить список всех валют"), ]        
 
-# Обработчик команды удаления валюты
-@router.message(F.text == "Удалить валюту")
-async def delete_currency_command(message: Message, state:FSMContext):
-    if not is_admin(message.chat.id):
-        await message.answer("Нет доступа к команде")
-        return
-    await message.answer("Введите название валюты:")
-    await state.update_data(action="Удалить валюту")
-    await state.set_state(CurrencyManagement.waiting_for_currency_name)
+# Конвертация
+@router.message(Command('convert'))                                                                       
+@router.message(F.text.lower() == "Конвертация")
+async def process_convert_currency_command_1(message: types.Message, state: FSMContext):
+    await message.reply("Выберите валюту для конвертации:")
+    await state.set_state(ConvertCurrency.name)
 
-# Команда /get_currencies (доступна всем пользователям)
-@router.message(Command('get_currencies'))
-async def get_currencies(message: Message):
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT currency_name, rate FROM currencies")  # Извлекаем только нужные столбцы
-        currencies = cursor.fetchall()
+# Конвертация
+@router.message(ConvertCurrency.name)                                                                     
+async def process_convert_currency_command_2(message: types.Message, state: FSMContext):
+    currency_name = message.text
 
-        if not currencies:
-            await message.answer("Нет сохраненных валют.")
-        else:
-            response = "Сохраненные валюты:\n\n"
-            for currency in currencies:
-                currency_name, rate = currency  # Распаковываем кортеж
-                response += f"{currency_name}: {rate} RUB\n"
-            await message.answer(response)
-
-
-# Получение названия валюты
-@router.message(CurrencyManagement.waiting_for_currency_name)
-async def get_currency_name(message: Message, state: FSMContext):
-    currency_name = message.text.upper()
-    data = await state.get_data()
-    action = data.get('action')
     await state.update_data(currency_name=currency_name)
+    await state.set_state(ConvertCurrency.amount)
+    await state.update_data(user_data=await state.get_data())
+    await message.reply("Введите сумму для конвертации:")
 
 
-    if action == "Добавить валюту":
-        with conn.cursor() as cursor:  # Используем контекстный менеджер
-            cursor.execute(f"SELECT * FROM currencies WHERE currency_name = '{currency_name}'")
-            if cursor.fetchone():
-                await message.answer("Данная валюта уже существует")
-                await state.clear()
-                return
-            await message.answer("Введите курс к рублю:")
-            await state.set_state(CurrencyManagement.waiting_for_currency_rate)
-    elif action == "Удалить валюту":
-        with conn.cursor() as cursor:
-            cursor.execute(f"DELETE FROM currencies WHERE currency_name = '{currency_name}'")
-            conn.commit()
-            await message.answer(f"Валюта: {currency_name} успешно удалена")
-            await state.clear()
-    elif action == "Изменить курс валюты":
-        await message.answer("Введите новый курс к рублю:")
-        await state.set_state(CurrencyManagement.waiting_for_currency_rate)
-
-
-
-# Получение курса валюты (для добавления и изменения)
-@router.message(CurrencyManagement.waiting_for_currency_rate)
-async def get_currency_rate(message: Message, state: FSMContext):
-    try:
-        currency_rate = float(message.text)
-    except ValueError:
-        await message.answer("Неверный формат курса. Введите число.")
-        return
-
+@router.message(ConvertCurrency.amount)
+async def process_convert_currency_command3(message: types.Message, state: FSMContext):
+    amount = message.text
 
     data = await state.get_data()
-    action = data.get('action')
     currency_name = data.get('currency_name')
 
-    with conn.cursor() as cursor:
-        if action == "Добавить валюту":
-            cursor.execute(f"INSERT INTO currencies (currency_name, rate) VALUES ('{currency_name}', {currency_rate});")
-            conn.commit()
-            await message.answer(f"Валюта: {currency_name} успешно добавлена")
-        elif action == "Изменить курс валюты":
-            cursor.execute(f"UPDATE currencies SET rate = {currency_rate} WHERE currency_name = '{currency_name}';")
-            conn.commit()
-            await message.answer(f"Курс валюты {currency_name} успешно изменен")
+    response = requests.get('http://127.0.0.1:5002/convert',
+                            json={'currency_name': currency_name, 'amount': amount})
 
-    await state.clear()
-
-
-# Класс для хранения состояний при конвертации
-class CurrencyConversion(StatesGroup):
-    waiting_for_currency_name = State()
-    waiting_for_amount = State()
-
-
-# Команда /convert (доступна всем)
-@router.message(Command('convert'))
-async def convert_command(message: Message, state: FSMContext):
-    await message.answer("Введите название валюты:")
-    await state.set_state(CurrencyConversion.waiting_for_currency_name)
-
-
-# Получение названия валюты для конвертации
-@router.message(CurrencyConversion.waiting_for_currency_name)
-async def get_currency_name_for_conversion(message: Message, state: FSMContext):
-    currency_name = message.text.upper()
-    await state.update_data(currency_name=currency_name)
-
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT rate FROM currencies WHERE currency_name = %s", (currency_name,))
-        currency_data = cursor.fetchone()
-
-        if not currency_data:
-            await message.answer("Валюта не найдена.")
-            await state.clear()
+    if response.status_code == 200:
+        response_data = response.json()
+        if 'converted_amount' in response_data:
+            converted_amount = response_data['converted_amount']
+            await message.reply(f"{amount} {currency_name} равно {converted_amount} рублей")
         else:
-            await state.update_data(currency_data=currency_data)  # Сохраняем курс
-            await message.answer("Введите сумму:")
-            await state.set_state(CurrencyConversion.waiting_for_amount)
+            await message.reply("Не удалось получить конвертированную сумму. Пожалуйста, попробуйте снова.")
+    else:
+        await message.reply("Произошла ошибка при конвертации. Пожалуйста, попробуйте снова.")
+        await state.clear()
 
 
-# Получение суммы и расчет результата
-@router.message(CurrencyConversion.waiting_for_amount)
-async def get_amount_and_convert(message: Message, state: FSMContext):
-    try:
-        amount = float(message.text)
-    except ValueError:
-        await message.answer("Неверный формат суммы. Введите число.")
-        return
+# Показ списка валют
+@router.message(Command('get_currencies'))                                                         
+@router.message(F.text.lower() == "список валют")
+async def process_show_currencies_command_1(message: types.Message, state: FSMContext):
+    response = requests.get('http://127.0.0.1:5002/currencies')
+    if response.status_code == 200:
+        actual_currencies = response.json().get('currencies', [])
+        if actual_currencies:
+            currencies_info = "\n".join([f"{currency[0]}: {currency[1]} к рублю" for currency in actual_currencies])
+            await message.reply(f"Сохраненные валюты:\n{currencies_info}")
+        else:
+            await message.reply("Нет сохраненных валют")
+    else:
+        await message.reply("Произошла ошибка при получении списка валют")
 
-    data = await state.get_data()
-    currency_name = data['currency_name']
-    rate = data['currency_data'][0]  # Получаем курс из кортежа
-    result = amount * float(rate)
 
-    await message.answer(f"{amount} {currency_name} = {result:.2f} RUB")
+
+# Добавление валюты
+@router.message(F.text.lower() == "добавить валюту")
+async def button_1_1(message: types.Message, state: FSMContext):
+    if not check_admin:
+        await message.reply("Нет доступа к команде")
+    else:
+        await state.set_state(CurrencyInfo.name)
+        await message.reply("Введите название валюты")
+
+# Добавление валюты
+@router.message(CurrencyInfo.name)
+async def button_1_2(message: types.Message, state: FSMContext):
+    currency_name = message.text
+    await state.update_data(currency_name=currency_name)
+    await state.set_state(CurrencyInfo.rate)
+    await message.reply("Введите курс валюты к рублю")
+
+# Добавление валюты
+@router.message(CurrencyInfo.rate)
+async def button_1_3(message: types.Message, state: FSMContext):
+    currency_name_from_last_step = await state.get_data()
+    currency_name = currency_name_from_last_step.get('currency_name')
+    rate = message.text
+    response = requests.post('http://127.0.0.1:5001/load',
+                             json={"currency_name":currency_name,"rate":rate})
+    if response.status_code == 200:
+        await message.reply(f"Валюта: {currency_name} добавлена")
+    else:
+        await message.reply(f"error: Валюта уже существует в базе данных")
     await state.clear()
 
+# Удаление валюты
+@router.message(F.text.lower() == "удалить валюту")
+async def button_2_1(message: types.Message, state: FSMContext):
+    if not check_admin:
+        await message.reply("Нет доступа к команде")
+    else:
+        await state.set_state(CurrencyInfo_Delete.name)
+        await message.reply("Введите название валюты, которую хотите удалить")
 
-user_command = [
-    BotCommand(command="/start", description="Начать работу"),
-    BotCommand(command="/convert", description="Конвертировать валюту"),
-    BotCommand(command="/get_currencies", description="Получить список всех валют")]
+# Удаление валюты
+@router.message(CurrencyInfo_Delete.name)
+async def button_2_2(message: types.Message, state: FSMContext):
+    currency_name = message.text
+    response = requests.post('http://127.0.0.1:5001/delete',
+                               json={"currency_name": currency_name})
+    if response.status_code == 200:
+        await message.reply(f"Валюта {currency_name} удалена из списка")
+        await state.clear()
+    else:
+        await message.reply("Такая валюта отсутствует в списке")
 
-admin_command = [
-    BotCommand(command="/start", description="Начать работу"),
-    BotCommand(command="/convert", description="Конвертировать валюту"),
-    BotCommand(command="/manage_currency", description="Добавить валюту"),
-    BotCommand(command="/get_currencies", description="Получить список всех валют")]
 
-ADMIN_ID='1313775325'
+# Изменение курса валюты
+@router.message(F.text.lower() == "изменить курс валюты")
+async def button_3_1(message: types.Message, state: FSMContext):
+    if not check_admin:
+        await message.reply("Нет доступа к команде")
+    else:
+        await state.set_state(CurrencyInfo_Change.name)
+        await message.reply("Введите название валюты, которую хотите изменить")
+
+
+# Изменение курса валюты
+@router.message(CurrencyInfo_Change.name)
+async def button_3_2(message: types.Message, state: FSMContext):
+    currency_name = message.text
+    await state.update_data(currency_name=currency_name)
+    await state.set_state(CurrencyInfo_Change.rate)
+    await message.reply("Введите новый курс валюты к рублю")
+
+# Изменение курса валюты
+@router.message(CurrencyInfo_Change.rate)
+async def button_3_3(message: types.Message, state: FSMContext):
+    currency_name_from_last_step = await state.get_data()
+    currency_name = currency_name_from_last_step.get('currency_name')
+    currency_rate = message.text
+    response = requests.post('http://127.0.0.1:5001/update_currency',
+                             json={"currency_name": currency_name, "rate": currency_rate})
+    if response.status_code == 200:
+        await message.reply(f"Сохранено: {currency_name} - {currency_rate} к рублю.")
+    else:
+        await message.reply("Не удалось обновить курс валюты.")
+    await state.clear()
+
+cur = conn.cursor()
+cur.execute("SELECT id FROM admins", (id,))
+ADMIN_ID = cur.fetchone()
+cur.close()
+
+
+async def setup_bot_commands(bot):
+    await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())
+    for admin in ADMIN_ID:
+        await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=str(admin)))
+
 
 async def main():
-    bot_token = os.getenv('TOKEN')
     bot = Bot(token=bot_token)
-    await bot.set_my_commands(user_command, scope=BotCommandScopeDefault())
-
-    for admin in ADMIN_ID:
-        await bot.set_my_commands(admin_command, scope=BotCommandScopeDefault(id=admin))
-
+    await setup_bot_commands(bot)
     dp = Dispatcher()
-
     dp.include_router(router)
     await dp.start_polling(bot)
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
-    # dp.middleware.setup(LoggingMiddleware())
+# cur.close()
+# conn.close()
 
-cursor.close()
-conn.close()
+
