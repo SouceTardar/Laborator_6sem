@@ -10,7 +10,7 @@ conn = psycopg2.connect(dbname="bot_lab", user="maxim_dlia_bota",
                         password="shtangauer05", host="127.0.0.1")
 
 
-bot_token = os.getenv('OKEN')
+bot_token = os.getenv('TOKEN')
 router = Router()
 
 # Добавление валюты
